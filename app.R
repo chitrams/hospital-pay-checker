@@ -310,8 +310,8 @@ server <- function(input, output) {
     req(pay_results())
     
     # Format shift times
-    shift_start_str <- format(shift_start(), "%A, %-d %b %Y, at %H:%M")
-    shift_end_str <- format(shift_end(), "%A, %-d %b %Y, at %H:%M")
+    shift_start_str <- format(shift_start(), "%H:%M on %A, %d %b %Y")
+    shift_end_str <- format(shift_end(), "%H:%M on %A, %d %b %Y")
     
     # Calculate hours depending on overtime
     regular_hours <- 0
@@ -327,8 +327,8 @@ server <- function(input, output) {
       overtime_hours <- sum(segments$hours[segments$is_overtime])
       
       # Format overtime times
-      ot_start_str <- format(overtime_start(), "%A, %-d %b %Y, at %H:%M")
-      ot_end_str <- format(overtime_end(), "%A, %-d %b %Y, at %H:%M")
+      ot_start_str <- format(overtime_start(), "%H:%M on %A, %d %b %Y")
+      ot_end_str <- format(overtime_end(), "%H:%M on %A, %d %b %Y")
       
       overtime_info <- paste(
         "<h4>Overtime Period</h4>",
