@@ -238,8 +238,6 @@ ui <- fluidPage(
     mainPanel(
       tabsetPanel(
         tabPanel("Summary", 
-                 
-                 verbatimTextOutput("debug"),
                  br(),
                  htmlOutput("shift_info"),
                  br(),
@@ -257,25 +255,34 @@ server <- function(input, output) {
   
   # Reactive expression to combine date and time inputs
   shift_start <- reactive({
-    date_time <- paste(input$start_date, format(input$start_time, "%H:%M"))
-    as_datetime(date_time)
+    # Create datetime from separate date and time inputs with explicit formatting
+    date_part <- format(input$start_date, "%Y-%m-%d")
+    time_part <- format(input$start_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
   })
   
   shift_end <- reactive({
-    date_time <- paste(input$end_date, format(input$end_time, "%H:%M"))
-    as_datetime(date_time)
+    date_part <- format(input$end_date, "%Y-%m-%d")
+    time_part <- format(input$end_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
   })
   
   overtime_start <- reactive({
     req(input$include_overtime)
-    date_time <- paste(input$overtime_start_date, format(input$overtime_start_time, "%H:%M"))
-    as_datetime(date_time)
+    date_part <- format(input$overtime_start_date, "%Y-%m-%d")
+    time_part <- format(input$overtime_start_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
   })
   
   overtime_end <- reactive({
     req(input$include_overtime)
-    date_time <- paste(input$overtime_end_date, format(input$overtime_end_time, "%H:%M"))
-    as_datetime(date_time)
+    date_part <- format(input$overtime_end_date, "%Y-%m-%d")
+    time_part <- format(input$overtime_end_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
   })
   
   # Calculate pay when button is clicked
@@ -394,17 +401,6 @@ server <- function(input, output) {
       DT::formatCurrency(columns = "total_pay", currency = "$")
   })
 }
-
-# Add this function to your server
-output$debug <- renderPrint({
-  list(
-    start_date = input$start_date,
-    start_time = input$start_time,
-    start_time_class = class(input$start_time),
-    combined = paste(format(input$start_date, "%Y-%m-%d"), format(input$start_time, "%H:%M:%S")),
-    parsed = as_datetime(paste(format(input$start_date, "%Y-%m-%d"), format(input$start_time, "%H:%M:%S")))
-  )
-})
 
 # Run the application
 shinyApp(ui = ui, server = server)
