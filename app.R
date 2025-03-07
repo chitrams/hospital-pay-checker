@@ -285,6 +285,19 @@ server <- function(input, output) {
     as_datetime(timestamp)
   })
   
+  #%% Validation reactive ---------
+  validation_message <- reactive({
+    # Only validate if overtime is included
+    if (input$include_overtime) {
+      # Check if the shift_end and overtime_end are the same
+      if (!identical(shift_end(), overtime_end())) {
+        return("Shift end time is incorrect. Check that your shift end time is the same as your overtime end time.")
+      }
+    }
+    return(NULL) # Return NULL when validation passes
+  })
+  
+  #%% Reactive pay button -----------------
   # Calculate pay when button is clicked
   pay_results <- eventReactive(input$calculate, {
     if (input$include_overtime) {
@@ -305,8 +318,24 @@ server <- function(input, output) {
     }
   })
   
+  #%% Outputs -----------
+  
+  # Create an output to display the validation message
+  output$validation_result <- renderUI({
+    msg <- validation_message()
+    if (!is.null(msg)) {
+      div(class = "alert alert-warning", msg)
+    }
+  })
+  
   # Display shift information
   output$shift_info <- renderUI({
+    
+    # First validate - this will stop rendering and show an error if validation fails
+    validate(
+      need(is.null(validation_message()), validation_message())
+    )
+    
     req(pay_results())
     
     # Format shift times
@@ -348,7 +377,6 @@ server <- function(input, output) {
         "<h4>Shift Information</h4>",
         "<p><strong>Start:</strong> ", shift_start_str, "</p>",
         "<p><strong>End:</strong> ", ot_end_str, "</p>", 
-        "<p><strong>Regular Hours:</strong> ", round(regular_hours, 2), "</p>",
         "<p><strong>Total Hours:</strong> ", round(pay_results()$total_hours, 2), "</p>",
         "<hr>",
         overtime_info,
@@ -360,7 +388,6 @@ server <- function(input, output) {
         "<h4>Shift Information</h4>",
         "<p><strong>Start:</strong> ", shift_start_str, "</p>",
         "<p><strong>End:</strong> ", shift_end_str, "</p>",
-        "<p><strong>Regular Hours:</strong> ", round(regular_hours, 2), "</p>",
         "<p><strong>Total Hours:</strong> ", round(pay_results()$total_hours, 2), "</p>",
         "</div>"
       )
@@ -372,6 +399,12 @@ server <- function(input, output) {
   
   # Display total pay
   output$total_pay <- renderUI({
+    
+    # First validate - this will stop rendering and show nothing if validation fails
+    validate(
+      need(is.null(validation_message()), message = " ")
+    )
+    
     req(pay_results())
     
     total <- formatC(pay_results()$total_pay, format = "f", digits = 2, big.mark = ",")
@@ -385,6 +418,12 @@ server <- function(input, output) {
   
   # Display rate summary table
   output$summary_table <- DT::renderDataTable({
+    
+    # First validate - this will stop rendering and show nothing if validation fails
+    validate(
+      need(is.null(validation_message()), message = " ")
+    )
+    
     req(pay_results())
     
     summary_df <- pay_results()$summary
