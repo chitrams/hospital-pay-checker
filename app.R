@@ -243,7 +243,8 @@ ui <- fluidPage(
                  br(),
                  htmlOutput("total_pay"),
                  br(),
-                 DT::dataTableOutput("summary_table")
+                 DT::dataTableOutput("summary_table"),
+                 br()
         )
       )
     )
