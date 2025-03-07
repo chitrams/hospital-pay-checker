@@ -177,7 +177,7 @@ calculate_shift_pay <- function(
 
 # Define UI -------------------
 ui <- fluidPage(
-  titlePanel("Shift Pay Calculator"),
+  titlePanel("Pay Checker"),
   
   sidebarLayout(
     sidebarPanel(
