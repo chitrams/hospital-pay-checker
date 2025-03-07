@@ -38,8 +38,25 @@ get_rate_multiplier <- function(datetime) {
   return(1.0) 
 }
 
+# Function to determine the overtime multiplier
+get_overtime_multiplier <- function(datetime) {
+  # Get day of the week (1 = Monday, 7 = Sunday)
+  day <- wday(datetime, week_start = 1)
+  
+  # Sunday (7) rule for overtime
+  if (day == 7) {
+    return(1.75)
+  }
+  # Default overtime multiplier
+  return(1.5)
+}
+
 # Function to calculate shift pay with detailed breakdown
-calculate_shift_pay_detailed <- function(date_start, date_end, base_rate = 45) {
+calculate_shift_pay <- function(
+    date_start, date_end, base_rate = 45.1977,
+    include_overtime = FALSE, 
+    overtime_start = NULL, overtime_end = NULL) {
+  
   # Ensure dates are in POSIXct format
   date_start <- as_datetime(date_start)
   date_end <- as_datetime(date_end)
@@ -53,13 +70,14 @@ calculate_shift_pay_detailed <- function(date_start, date_end, base_rate = 45) {
     minute_seq <- c(minute_seq, date_end)
   }
   
-  # Initialize dataframe to store segment details
+  # Initialise dataframe to store segment details
   segments <- data.frame(
     segment_start = as.POSIXct(character()),
     segment_end = as.POSIXct(character()),
     hours = numeric(),
     rate_multiplier = numeric(),
     segment_pay = numeric(),
+    is_overtime = logical(),
     stringsAsFactors = FALSE
   )
   
@@ -71,8 +89,20 @@ calculate_shift_pay_detailed <- function(date_start, date_end, base_rate = 45) {
     # Duration of this segment in hours (may be fractional)
     segment_hours <- as.numeric(difftime(segment_end, segment_start, units = "hours"))
     
+    # Check if this segment is within overtime period
+    is_overtime <- FALSE
+    if (include_overtime && !is.null(overtime_start) && !is.null(overtime_end)) {
+      overtime_start <- as_datetime(overtime_start)
+      overtime_end <- as_datetime(overtime_end)
+      is_overtime <- segment_start >= overtime_start && segment_end <= overtime_end
+    }
+    
     # Determine the pay rate for this segment
-    rate_multiplier <- get_rate_multiplier(segment_start)
+    if (is_overtime) {
+      rate_multiplier <- get_overtime_multiplier(segment_start)
+    } else {
+      rate_multiplier <- get_rate_multiplier(segment_start)
+    }
     
     # Calculate pay for this segment
     segment_pay <- base_rate * rate_multiplier * segment_hours
@@ -83,31 +113,44 @@ calculate_shift_pay_detailed <- function(date_start, date_end, base_rate = 45) {
       segment_end = segment_end,
       hours = segment_hours,
       rate_multiplier = rate_multiplier,
-      segment_pay = segment_pay
+      segment_pay = segment_pay,
+      is_overtime = is_overtime
     ))
   }
   
   # Add a reason column to explain each multiplier
-  segments$reason <- sapply(segments$segment_start, function(dt) {
-    day <- wday(dt, week_start = 1)
-    hour <- hour(dt)
+  segments$reason <- sapply(1:nrow(segments), function(i) {
+    dt <- segments$segment_start[i]
+    is_overtime <- segments$is_overtime[i]
     
-    if (day == 7) {
-      return("Sunday")
-    } else if (day == 1 && hour < 8) {
-      return("Monday morning")
-    } else if (day == 6) {
-      return("Saturday")
-    } else if (day >= 1 && day <= 5 && hour >= 0 && hour <= 7) {
-      return("Weekday overnight")
-    } else if (day >= 1 && day <= 5 && hour >= 18 && hour <= 23) {
-      return("Weekday evening")
+    if (is_overtime) {
+      day <- wday(dt, week_start = 1)
+      if (day == 7) {
+        return("Overtime on Sundays")
+      } else {
+        return("Overtime")
+      }
     } else {
-      return("Regular weekday")
+      day <- wday(dt, week_start = 1)
+      hour <- hour(dt)
+      
+      if (day == 7) {
+        return("Sunday")
+      } else if (day == 1 && hour < 8) {
+        return("Monday morning")
+      } else if (day == 6) {
+        return("Saturday")
+      } else if (day >= 1 && day <= 5 && hour >= 0 && hour <= 7) {
+        return("Weekday overnight")
+      } else if (day >= 1 && day <= 5 && hour >= 18 && hour <= 23) {
+        return("Weekday evening")
+      } else {
+        return("Regular weekday")
+      }
     }
   })
   
-  # Summarize by rate multiplier
+  # Summarize by rate multiplier and reason
   summary <- segments %>%
     group_by(rate_multiplier, reason) %>%
     summarize(
@@ -122,40 +165,70 @@ calculate_shift_pay_detailed <- function(date_start, date_end, base_rate = 45) {
   total_hours <- sum(segments$hours)
   
   # Return a list with all the details
-  return(list(
+  pay_output <- list(
     segments = segments,
     summary = summary,
     total_pay = total_pay,
     total_hours = total_hours
-  ))
+  )
+  
+  return(pay_output)
 }
 
 # Define UI -------------------
 ui <- fluidPage(
-  titlePanel("Shift Pay Calculator"),
+  titlePanel("Pay Checker"),
   
   sidebarLayout(
     sidebarPanel(
       numericInput("base_rate", 
-                   "Base Hourly Rate ($):", 
-                   value = 45, 
+                   "Base hourly rate ($)", 
+                   value = 45.1977, 
                    min = 0),
       
       dateInput("start_date",
-                "Shift Start Date:",
+                "Shift start date",
                 value = Sys.Date()),
       
       timeInput("start_time",
-                "Shift Start Time:",
-                value = strptime("22:00:00", "%H:%M:%S")),
+                "Shift start time",
+                value = strptime("07:00", "%H:%M"),
+                seconds = FALSE),
       
       dateInput("end_date",
-                "Shift End Date:",
-                value = Sys.Date() + 1),
+                "Shift end date",
+                value = Sys.Date()),
       
       timeInput("end_time",
-                "Shift End Time:",
-                value = strptime("08:30:00", "%H:%M:%S")),
+                "Shift end time",
+                value = strptime("17:00", "%H:%M"),
+                seconds = FALSE),
+      
+      checkboxInput("include_overtime", 
+                    "Include overtime?", 
+                    value = FALSE),
+      
+      conditionalPanel(
+        condition = "input.include_overtime == true",
+        
+        dateInput("overtime_start_date",
+                  "Overtime start date",
+                  value = Sys.Date()),
+        
+        timeInput("overtime_start_time",
+                  "Overtime start time",
+                  value = strptime("17:00", "%H:%M"),
+                  seconds = FALSE),
+        
+        dateInput("overtime_end_date",
+                  "Overtime end date",
+                  value = Sys.Date()),
+        
+        timeInput("overtime_end_time",
+                  "Overtime end time",
+                  value = strptime("21:00", "%H:%M"),
+                  seconds = FALSE)
+      ),
       
       actionButton("calculate", "Calculate Pay", 
                    class = "btn-primary", 
@@ -170,7 +243,8 @@ ui <- fluidPage(
                  br(),
                  htmlOutput("total_pay"),
                  br(),
-                 DT::dataTableOutput("summary_table")
+                 DT::dataTableOutput("summary_table"),
+                 br()
         )
       )
     )
@@ -182,40 +256,156 @@ server <- function(input, output) {
   
   # Reactive expression to combine date and time inputs
   shift_start <- reactive({
-    date_time <- paste(input$start_date, format(input$start_time, "%H:%M:%S"))
-    as_datetime(date_time)
+    # Create datetime from separate date and time inputs with explicit formatting
+    date_part <- format(input$start_date, "%Y-%m-%d")
+    time_part <- format(input$start_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
   })
   
   shift_end <- reactive({
-    date_time <- paste(input$end_date, format(input$end_time, "%H:%M:%S"))
-    as_datetime(date_time)
+    date_part <- format(input$end_date, "%Y-%m-%d")
+    time_part <- format(input$end_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
   })
   
+  overtime_start <- reactive({
+    req(input$include_overtime)
+    date_part <- format(input$overtime_start_date, "%Y-%m-%d")
+    time_part <- format(input$overtime_start_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
+  })
+  
+  overtime_end <- reactive({
+    req(input$include_overtime)
+    date_part <- format(input$overtime_end_date, "%Y-%m-%d")
+    time_part <- format(input$overtime_end_time, "%H:%M:%S")
+    timestamp <- paste(date_part, time_part)
+    as_datetime(timestamp)
+  })
+  
+  #%% Validation reactive ---------
+  validation_message <- reactive({
+    # Only validate if overtime is included
+    if (input$include_overtime) {
+      # Check if the shift_end and overtime_end are the same
+      if (!identical(shift_end(), overtime_end())) {
+        return("Shift end time is incorrect. Check that your shift end time is the same as your overtime end time.")
+      }
+    }
+    return(NULL) # Return NULL when validation passes
+  })
+  
+  #%% Reactive pay button -----------------
   # Calculate pay when button is clicked
   pay_results <- eventReactive(input$calculate, {
-    calculate_shift_pay_detailed(shift_start(), shift_end(), input$base_rate)
+    if (input$include_overtime) {
+      calculate_shift_pay(
+        shift_start(), 
+        shift_end(), 
+        input$base_rate, 
+        include_overtime = TRUE, 
+        overtime_start = overtime_start(), 
+        overtime_end = overtime_end()
+      )
+    } else {
+      calculate_shift_pay(
+        shift_start(), 
+        shift_end(), 
+        input$base_rate
+      )
+    }
+  })
+  
+  #%% Outputs -----------
+  
+  # Create an output to display the validation message
+  output$validation_result <- renderUI({
+    msg <- validation_message()
+    if (!is.null(msg)) {
+      div(class = "alert alert-warning", msg)
+    }
   })
   
   # Display shift information
   output$shift_info <- renderUI({
+    
+    # First validate - this will stop rendering and show an error if validation fails
+    validate(
+      need(is.null(validation_message()), validation_message())
+    )
+    
     req(pay_results())
     
-    start <- format(shift_start(), "%a, %b %d, %Y %H:%M")
-    end <- format(shift_end(), "%a, %b %d, %Y %H:%M")
-    hours <- round(pay_results()$total_hours, 2)
+    # Format shift times
+    shift_start_str <- format(shift_start(), "%H:%M on %A, %d %b %Y")
+    shift_end_str <- format(shift_end(), "%H:%M on %A, %d %b %Y")
     
-    HTML(paste(
-      "<div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px;'>",
-      "<h4>Shift Information</h4>",
-      "<p><strong>Start:</strong> ", start, "</p>",
-      "<p><strong>End:</strong> ", end, "</p>",
-      "<p><strong>Total Hours:</strong> ", hours, "</p>",
-      "</div>"
-    ))
+    # Calculate hours depending on overtime
+    regular_hours <- 0
+    overtime_hours <- 0
+    
+    # Calculating pay depending on overtime
+    if (input$include_overtime) {
+      
+      segments <- pay_results()$segments
+      
+      # Sum up regular and overtime hours
+      regular_hours <- sum(segments$hours[!segments$is_overtime])
+      overtime_hours <- sum(segments$hours[segments$is_overtime])
+      
+      # Format overtime times
+      ot_start_str <- format(overtime_start(), "%H:%M on %A, %d %b %Y")
+      ot_end_str <- format(overtime_end(), "%H:%M on %A, %d %b %Y")
+      
+      overtime_info <- paste(
+        "<h4>Overtime Period</h4>",
+        "<p><strong>Start:</strong> ", ot_start_str, "</p>",
+        "<p><strong>End:</strong> ", ot_end_str, "</p>",
+        "<p><strong>Overtime Hours:</strong> ", round(overtime_hours, 2), "</p>"
+      )
+    } else {
+      regular_hours <- pay_results()$total_hours
+    }
+    
+    # Showing HTML content depending on overtime
+    
+    if (input$include_overtime) {
+      html_content <- paste(
+        "<div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px;'>",
+        "<h4>Shift Information</h4>",
+        "<p><strong>Start:</strong> ", shift_start_str, "</p>",
+        "<p><strong>End:</strong> ", ot_end_str, "</p>", 
+        "<p><strong>Total Hours:</strong> ", round(pay_results()$total_hours, 2), "</p>",
+        "<hr>",
+        overtime_info,
+        "</div>"
+      )
+    } else {
+      html_content <- paste(
+        "<div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px;'>",
+        "<h4>Shift Information</h4>",
+        "<p><strong>Start:</strong> ", shift_start_str, "</p>",
+        "<p><strong>End:</strong> ", shift_end_str, "</p>",
+        "<p><strong>Total Hours:</strong> ", round(pay_results()$total_hours, 2), "</p>",
+        "</div>"
+      )
+    }
+    
+    HTML(html_content)
+    
   })
   
   # Display total pay
   output$total_pay <- renderUI({
+    
+    # First validate - this will stop rendering and show nothing if validation fails
+    validate(
+      need(is.null(validation_message()), message = " ")
+    )
+    
     req(pay_results())
     
     total <- formatC(pay_results()$total_pay, format = "f", digits = 2, big.mark = ",")
@@ -229,6 +419,12 @@ server <- function(input, output) {
   
   # Display rate summary table
   output$summary_table <- DT::renderDataTable({
+    
+    # First validate - this will stop rendering and show nothing if validation fails
+    validate(
+      need(is.null(validation_message()), message = " ")
+    )
+    
     req(pay_results())
     
     summary_df <- pay_results()$summary

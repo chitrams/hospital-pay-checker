@@ -1,0 +1,10 @@
+name: hospital-pay-checker
+title:
+username: chitra-ms
+account: chitra-ms
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 14182539
+bundleId: 9906107
+url: https://chitra-ms.shinyapps.io/hospital-pay-checker/
+version: 1
